@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Clipforge</title>
+<style>
+:root{--bg:#14110f;--panel:#1f1a17;--ink:#f3ece4;--mute:#a39a90;--acc:#ffe14d;--line:#3a322c}
+@media (prefers-color-scheme:light){:root{--bg:#f6f1ea;--panel:#fff;--ink:#1d1814;--mute:#6f665c;--acc:#e6b800;--line:#ddd3c6}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Trebuchet MS",system-ui,sans-serif}
+main{max-width:980px;margin:0 auto;padding:40px 20px;display:grid;grid-template-columns:1fr 300px;gap:32px}
+@media(max-width:800px){main{grid-template-columns:1fr}}
+h1{font:800 44px/1.05 Impact,"Arial Narrow Bold",sans-serif;margin:0 0 8px;letter-spacing:.5px}
+p.sub{color:var(--mute);margin:0 0 24px}
+label{display:block;font-weight:700;margin:16px 0 6px}
+textarea,select{width:100%;padding:12px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);font:inherit}
+textarea{min-height:140px;resize:vertical}
+.row{display:flex;gap:12px}.row>div{flex:1}
+button{margin-top:20px;padding:14px 22px;border:0;border-radius:6px;background:var(--acc);color:#1d1814;font:800 16px system-ui;cursor:pointer}
+button:disabled{opacity:.5;cursor:wait}
+:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+.phone{aspect-ratio:9/16;background:#000;border:1px solid var(--line);border-radius:18px;overflow:hidden;display:grid;place-items:center;text-align:center;color:var(--mute);padding:16px}
+video{width:100%;height:100%;object-fit:cover}
+#msg{margin-top:12px;color:var(--mute)}#msg.err{color:#ff7a6b}
+a{color:var(--acc)}
+[hidden]{display:none!important}
+input:not([type=checkbox]){width:100%;padding:12px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);font:inherit}
+.tabs{display:flex;gap:8px}.tabs button{margin:0;background:var(--panel);color:var(--ink);border:1px solid var(--line)}
+.tabs button[aria-pressed=true]{background:var(--acc);color:#1d1814}
+figure{margin:0 0 20px}figcaption{margin-top:8px}
+</style></head><body><main>
+<section>
+<h1>Clipforge</h1>
+<p class="sub">Type an idea, get a vertical video with a voiceover and word-by-word captions.</p>
+<div class="tabs"><button id="tm" aria-pressed="true">Make a video</button><button id="tc" aria-pressed="false">Clip a long video</button></div>
+<div id="tab-make">
+<label for="prompt">Topic or script</label>
+<textarea id="prompt" placeholder="Three facts about octopuses that sound fake but aren't"></textarea>
+<label><input type="checkbox" id="ai" checked> Let Claude write the script from my topic</label>
+<div class="row">
+<div><label for="voice">Voice</label><select id="voice">
+<option value="en-US-GuyNeural">Guy (US male)</option><option value="en-US-JennyNeural">Jenny (US female)</option>
+<option value="en-GB-RyanNeural">Ryan (UK male)</option><option value="en-AU-NatashaNeural">Natasha (AU female)</option></select></div>
+<div><label for="bg">Background</label><select id="bg"><option value="">Random</option></select></div>
+</div>
+<button id="go">Generate video</button>
+<div id="msg" role="status"></div>
+</div>
+<div id="tab-clip" hidden>
+<label for="file">Video file</label><input type="file" id="file" accept="video/*">
+<label for="url">Or paste a link (YouTube, Twitch, and similar)</label><input id="url" type="url" placeholder="https://">
+<label for="n">Number of clips</label><select id="n"><option>3</option><option selected>5</option><option>8</option></select>
+<label><input type="checkbox" id="rights"> I own this video or have permission to clip it</label>
+<button id="cgo">Find and render clips</button>
+<div id="cmsg" role="status"></div>
+</div>
+</section>
+<aside><div class="phone" id="out">Your video appears here</div>
+<div id="clips" hidden></div></aside>
+</main>
+<script>
+const $=id=>document.getElementById(id), msg=$("msg");
+fetch("/api/backgrounds").then(r=>r.json()).then(l=>l.forEach(n=>$("bg").add(new Option(n,n))));
+$("go").onclick=async()=>{
+  const prompt=$("prompt").value.trim(); if(prompt.length<3){msg.className="err";msg.textContent="Enter a topic or script first.";return}
+  $("go").disabled=true; msg.className=""; msg.textContent="Queued";
+  const r=await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({prompt,use_ai_script:$("ai").checked,voice:$("voice").value,background:$("bg").value})});
+  if(!r.ok){msg.className="err";msg.textContent="Could not start the job.";$("go").disabled=false;return}
+  const {id}=await r.json();
+  const t=setInterval(async()=>{
+    const j=await (await fetch("/api/jobs/"+id)).json();
+    if(j.status==="done"){clearInterval(t);$("go").disabled=false;msg.textContent="";
+      $("out").innerHTML=`<video src="${j.url}" controls autoplay loop></video>`;
+      msg.innerHTML=`<a href="${j.url}" download>Download MP4</a>`}
+    else if(j.status==="error"){clearInterval(t);$("go").disabled=false;msg.className="err";msg.textContent=j.error}
+    else msg.textContent=j.status+"…";
+  },1500);
+};
+const esc=s=>s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function show(t){$("tab-make").hidden=t!=="make";$("tab-clip").hidden=t!=="clip";
+  $("tm").setAttribute("aria-pressed",t==="make");$("tc").setAttribute("aria-pressed",t==="clip");
+  $("out").hidden=t!=="make";$("clips").hidden=t!=="clip"}
+$("tm").onclick=()=>show("make");$("tc").onclick=()=>show("clip");
+$("cgo").onclick=async()=>{
+  const cm=$("cmsg"),f=$("file").files[0],url=$("url").value.trim();
+  if(!f&&!url){cm.className="err";cm.textContent="Upload a video or paste a link.";return}
+  const fd=new FormData();if(f)fd.append("file",f);fd.append("url",url);
+  fd.append("n_clips",$("n").value);fd.append("rights",$("rights").checked);
+  $("cgo").disabled=true;cm.className="";cm.textContent="Uploading…";
+  const r=await fetch("/api/clip",{method:"POST",body:fd});
+  if(!r.ok){cm.className="err";cm.textContent=(await r.json()).detail||"Could not start the job.";$("cgo").disabled=false;return}
+  const {id}=await r.json();
+  const t=setInterval(async()=>{
+    const j=await (await fetch("/api/jobs/"+id)).json();
+    if(j.status==="done"){clearInterval(t);$("cgo").disabled=false;cm.textContent="";
+      $("clips").innerHTML=j.clips.map(c=>`<figure><div class="phone"><video src="${c.url}" controls loop></video></div><figcaption>${esc(c.title)}: <a href="${c.url}" download>Download MP4</a></figcaption></figure>`).join("")}
+    else if(j.status==="error"){clearInterval(t);$("cgo").disabled=false;cm.className="err";cm.textContent=j.error}
+    else cm.textContent=j.status+"…";
+  },2000);
+};
+</script></body></html>
