@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+edge-tts>=7.0
+anthropic
+faster-whisper
+yt-dlp
+python-multipart
